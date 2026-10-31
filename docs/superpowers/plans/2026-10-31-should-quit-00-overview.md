@@ -44,7 +44,7 @@
 | @tarojs/* | 4.3.1 | miniapp | |
 | react / react-dom | 18.3.1 | miniapp | Taro 4.3.1 peer 为 `react ^18` |
 | zustand | 5.0.16 | miniapp | |
-| dayjs | 1.11.23 | shared（时区日期计算） | 配 `utc`、`timezone` 插件 |
+| （不引入日期库） | | shared | Asia/Shanghai 自 1991 年起固定 UTC+8、无夏令时，`localDate` 直接按 +8 小时偏移计算。不依赖 `Intl` 时区数据，部分小程序基础库的 `Intl` 不完整 |
 
 折线图不引入 ECharts，改为 Canvas 2D 自绘（设计文档 §7.2 已同步更新）。
 
@@ -86,6 +86,7 @@ export function computeScore(b: BaselineInput, daily: { age: number; avg: number
 export const APP_TZ = 'Asia/Shanghai'
 export function localDate(at: Date): string          // 'YYYY-MM-DD'
 export function daysBetween(from: string, to: string): number
+export function shiftDate(date: string, days: number): string   // 'YYYY-MM-DD' 加减 n 天
 // stream
 export class Utf8StreamDecoder { push(chunk: Uint8Array): string; flush(): string }
 export class SseParser { push(text: string): SseFrame[] }   // SseFrame = { event: string; data: string }
@@ -93,6 +94,22 @@ export class SseParser { push(text: string): SseFrame[] }   // SseFrame = { even
 export const ErrorCode: { ... }   // 设计文档 §5 对照表中的全部错误码
 export const errorHttpStatus: Record<ErrorCode, number | null>
 export const baselineSchema, moodCreateSchema, askSchema, trendQuerySchema, dailyQuerySchema
+// —— Phase 2 细化时补充的导出（同样不得改名）——
+export function addDays(date: string, n: number): string
+export function aggregateDaily(checkins: { checkinDate: string; stars: number }[], today: string, windowDays?: number): DailyMood[]
+//   DailyMood = { date: string; age: number; avg: number; count: number }，avg 为 0–100
+export interface ScoreResult { objectiveScore: number; moodScore: number | null; totalScore: number; tier: Tier; breakdown: Record<BaselineField, number>; algoVersion: number }
+export const TIER_RANGES, TIERS, BASELINE_WEIGHTS, MOOD_WINDOW_DAYS, TREND_RANGE_DAYS
+export const BASELINE_OPTIONS: readonly BaselineQuestion[]
+export function levelLabel(field: BaselineField, level: Level): string
+export const SSE_PING: string
+export function formatSseFrame(event: string, data: string): string
+export function formatAgentEvent(e: AgentEvent): string
+export function parseAgentEvent(frame: SseFrame): AgentEvent | null
+export const loginSchema, moodDateQuerySchema
+// 响应类型：ScoreView、TierCopy、UserView、LoginResponse、MoodCreateResponse、DailyMoodView、MoodCheckinView、
+//          SnapshotView、TrendResponse、ConversationView、MessageView、AgentConfigView、AgentEvent
+// ErrorCode 比设计文档对照表多一个 INTERNAL_ERROR（500），用于未预期异常
 ```
 
 **环境变量（`apps/server/.env.example`）：**
