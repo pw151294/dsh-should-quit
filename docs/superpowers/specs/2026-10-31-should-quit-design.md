@@ -58,7 +58,8 @@ should-quit/
 │   └─ dto/                  接口请求/响应的 zod schema 与类型
 ├─ apps/server/              NestJS + Prisma + MySQL
 │   ├─ config/tiers.json     档位文案
-│   ├─ config/agent.json     系统提示、心理援助热线
+│   ├─ config/agent-prompt.md  系统提示（纯文本，两种实现共用）
+│   ├─ config/agent.json     结构化配置：心理援助热线、工具状态文案、预设问题
 │   ├─ auth/ baseline/ mood/ score/ agent/
 │   └─ internal/             dsh 工具回调，仅监听 127.0.0.1
 ├─ apps/agent-plugin/        dsh Cordis 插件（4 个只读工具）+ patch 配置
@@ -69,7 +70,7 @@ should-quit/
 
 - **评分只有一个来源**：算法在 `packages/shared/scoring`。后端出权威结果，小程序只用它做编辑基准时的实时预览。智能体不算分。
 - **数据流**：小程序 →（HTTPS + JWT）→ server。server 持有一个 dsh 子进程（stdio JSON-RPC）。dsh 内的工具通过 HTTP 回调 `127.0.0.1` 上的 internal 端口，携带共享密钥。
-- **身份只由服务端决定**：server 维护 `dshSessionId → userId` 映射，工具请求只带 sessionId，工具入参不含 userId。
+- **身份只由服务端决定**：映射关系就是 `AgentConversation.dshSessionId → userId`，工具请求只带 sessionId，工具入参不含 userId。会话重建换了新的 dshSessionId 后，旧 id 立即失效，再用它回调 internal 接口返回 403。
 - **重算时机**：基准修改、新增打卡时同步重算并 upsert 当天快照。不引入队列。
 
 ## 3. 评分算法
@@ -198,7 +199,7 @@ enum MessageStatus { COMPLETE FAILED INTERRUPTED }
 说明：
 - **日均分不建表**：查询时对近 30 天打卡 GROUP BY `checkinDate` 计算。
 - **当前分数实时计算**：心情分权重随日期衰减，用户没有操作分数也会变，所以 `GET /api/score/current` 不读快照。快照只服务趋势图。
-- **快照写入**：基准修改、新增打卡时对当天快照做 upsert。没有快照的日子，前端沿用前一天的值。
+- **快照写入**：基准修改、新增打卡时对当天快照做 upsert。没有快照的日子，前端沿用前一天的值；趋势接口额外返回范围起点之前最近的一条快照（`before`），保证第一天也有值可沿用。
 - **会话双份存储**：dsh 在 `dshHome` 中保存完整上下文（含工具调用），用于 `resumeSession`；MySQL 只存展示用消息，并作为重建上下文的来源。
 
 ## 5. 后端接口
@@ -211,10 +212,10 @@ enum MessageStatus { COMPLETE FAILED INTERRUPTED }
 | 基准 | `GET /api/baseline` | 未录入时返回 `null` |
 | | `PUT /api/baseline` | 整份覆盖，每项校验 1–5；同步重算并 upsert 当天快照，返回最新评分 |
 | 打卡 | `POST /api/moods` `{stars, note?}` | `checkinDate` 由服务端计算；同步重算并 upsert 当天快照，返回最新评分 |
-| | `GET /api/moods/daily?days=30` | 近 N 天的 `{date, avg, count}`，`days` 取值 1–90 |
+| | `GET /api/moods/daily?days=30` | 近 N 天的 `{date, avg, count}`，`avg` 为映射后的 0–100 分（保留两位小数），`days` 取值 1–90 |
 | | `GET /api/moods?date=YYYY-MM-DD` | 当天打卡明细 |
 | 评分 | `GET /api/score/current` | 实时计算，返回 `{objectiveScore, moodScore, totalScore, tier, copy:{label,slogan,guidance}, breakdown}` |
-| | `GET /api/score/trend?range=7d\|30d\|90d` | 范围内的快照列表 |
+| | `GET /api/score/trend?range=7d\|30d\|90d` | 返回 `{before, items}`：`items` 为范围内快照，`before` 为范围起点前最近的一条快照（没有则为 `null`） |
 | 智能体 | `GET /api/agent/conversations` | 会话列表，按 `lastMessageAt` 倒序 |
 | | `POST /api/agent/conversations` | 新建会话（生成 dshSessionId） |
 | | `GET /api/agent/conversations/:id/messages` | 历史消息 |
@@ -229,15 +230,32 @@ enum MessageStatus { COMPLETE FAILED INTERRUPTED }
 |---|---|---|
 | `get_score_summary` | 无 | 当前综合分、档位、文案、客观分、心情分 |
 | `get_baseline` | 无 | 8 项的档位文字及单项分 |
-| `get_mood_history` | `days`（1–90，默认 30） | 日均分列表 + 最近 20 条备注 |
+| `get_mood_history` | `days`（1–90，默认 30） | `days` 范围内的日均分列表 + 同一范围内最近 20 条备注 |
 | `get_score_trend` | `range`（7d/30d/90d） | 快照列表 |
 
 **规则**
 - 没有基准信息时，打卡、评分、智能体接口返回 `409 BASELINE_REQUIRED`。
 - 所有查询都以 JWT 中的 userId 为条件；访问他人会话返回 404。
-- 错误格式统一为 `{code, message}`，错误码在 shared 中枚举：`BASELINE_REQUIRED`、`VALIDATION_FAILED`、`NOT_FOUND`、`RATE_LIMITED`、`AGENT_BUSY`、`AGENT_UNAVAILABLE`、`AGENT_RESTARTING`、`AGENT_TIMEOUT`、`UNAUTHORIZED`。
-- 智能体提问按用户限流，每小时 30 次；同一会话上一轮未结束时返回 `409 AGENT_BUSY`。
+- 错误格式统一为 `{code, message}`，错误码在 shared 中枚举，完整列表与 HTTP 状态见下方对照表。
 - `note` 最多 200 字，按纯文本存储和展示；交给智能体时放入明确的数据区块。
+- 智能体提问按用户限流，每小时 30 次；同一会话上一轮未结束时返回 `409 AGENT_BUSY`。“未结束”以 dsh 这一轮真正结束（`run()` settle 或子进程退出）为准，不以 300 秒超时为准，见 6.6。
+- SSE 开始前的错误（409、429、503 等）按普通 JSON 返回，`Content-Type: application/json`；只有成功开始推流时才返回 `200` + `text/event-stream`。
+
+**错误码与 HTTP 状态对照**
+
+| 错误码 | HTTP | 场景 |
+|---|---|---|
+| `VALIDATION_FAILED` | 400 | 请求体或查询参数校验失败 |
+| `UNAUTHORIZED` | 401 | JWT 缺失、无效或过期 |
+| `WECHAT_LOGIN_FAILED` | 401 | wechat 模式下 code2session 失败或 code 无效 |
+| `FORBIDDEN` | 403 | internal 接口 token 错误或 sessionId 无映射 |
+| `NOT_FOUND` | 404 | 资源不存在或不属于当前用户 |
+| `BASELINE_REQUIRED` | 409 | 未完成首次基准录入 |
+| `AGENT_BUSY` | 409 | 同一会话上一轮未结束 |
+| `RATE_LIMITED` | 429 | 智能体提问超过每小时 30 次 |
+| `AGENT_RESTARTING` | 503 | dsh 子进程重启中 |
+| `AGENT_UNAVAILABLE` | SSE `error` 事件 | 推流开始后模型侧失败（限流、鉴权、余额） |
+| `AGENT_TIMEOUT` | SSE `error` 事件 | 单轮超过 300 秒 |
 
 ## 6. 智能体模块
 
@@ -293,6 +311,10 @@ interface AgentEngine {
 
 dsh 协议不支持中途取消一轮回答。客户端断开后，后台会把这一轮跑完；单轮超过 300 秒时，消息标记 `INTERRUPTED` 并发送 `error`（`AGENT_TIMEOUT`），之后不再补存这一轮结果。
 
+**会话锁**：`AgentService` 在内存里按 conversationId 持有锁，只在 dsh 这一轮真正结束（`run()` settle）或子进程退出时释放，300 秒超时不释放。这样同一个 dsh session 里永远不会同时跑两轮，避免上下文被交错写入。代价是超时后用户在这个会话里会持续收到 `AGENT_BUSY`，直到后台跑完。小程序收到 `AGENT_BUSY` 时提示“上一条回答还在后台收尾，稍等片刻再试，或新开一个会话”。单进程部署，内存锁足够；子进程退出时清空全部锁。
+
+**重试**：聊天页“点此重试”重新发送原问题文本，新写一条 USER 消息，原来那组消息保留并显示 `INTERRUPTED`/`FAILED` 状态，不做覆盖。
+
 ### 6.7 超时链路配置
 
 | 位置 | 配置 |
@@ -313,7 +335,7 @@ dsh 协议不支持中途取消一轮回答。客户端断开后，后台会把�
 | 启动页 | 自动 `wx.login` → 调用登录接口，根据 `hasBaseline` 跳转到录入页或首页 |
 | 基准录入/编辑页 | 问卷式，一屏一项。首次录入：顶部显示“N / 8”进度，选完自动进入下一项，底部实时预览客观分，必须 8 项全部填完才能提交。编辑：先显示一页总览，列出 8 项当前档位，点某一项进入单项页修改，保存后回到总览 |
 | 首页 | 打卡优先。上方是打卡区：5 颗星、一句话备注（选填）、打卡按钮、“今日已打卡 N 次”。下方是缩小的分数卡：总分、档位 label、slogan，以及客观分/心情分两个小指标，点“查看详细建议”展开 guidance。没有打卡数据时显示“去打卡”提示 |
-| 趋势页（分包） | 上方是综合分折线图（ECharts，7/30/90 天可切换）。下方是按月翻页的心情日历色块（用 view 绘制，红色低、绿色高、灰色未打卡），点日期从底部弹出当天的打卡明细 |
+| 趋势页（主包，图表组件在分包） | 上方是综合分折线图（ECharts，7/30/90 天可切换）。下方是按月翻页的心情日历色块（用 view 绘制，按当日 `avg` 分 4 段着色：0–25 红、26–50 橙、51–75 黄、76–100 绿，未打卡为灰；色块内同时显示日期数字，不只靠颜色），点日期从底部弹出当天的打卡明细 |
 | 顾问页 | 会话列表（按时间倒序）+ 新建会话按钮 |
 | 聊天页 | 经典气泡对话。调用工具时显示灰色状态行，回答完成后保留。新会话空白处显示预设问题，点击即发送。流式回答出现中断时，显示“回答中断，点此重试” |
 | 我的 | 编辑基准、免责声明、关于 |
@@ -321,9 +343,9 @@ dsh 协议不支持中途取消一轮回答。客户端断开后，后台会把�
 ### 7.2 关键实现
 
 - **请求封装**：自动附带 token；收到 401 时重新登录并重试一次；收到 `409 BASELINE_REQUIRED` 跳转录入页；其他错误按 `{code, message}` 弹 toast。
-- **流式解析**：`Taro.request({ enableChunked: true })` + `onChunkReceived`（要求基础库 ≥ 2.20.2）。`packages/shared/stream` 提供带缓冲的增量 UTF-8 解码器和 SSE 帧解析器，不依赖 `TextDecoder`。
+- **流式解析**：`Taro.request({ enableChunked: true })` + `onChunkReceived`（要求基础库 ≥ 2.20.2）。`packages/shared/stream` 提供带缓冲的增量 UTF-8 解码器和 SSE 帧解析器，不依赖 `TextDecoder`。用 `onHeadersReceived` 读取状态码和 `Content-Type`：是 `200` + `text/event-stream` 时按 SSE 解析；否则把所有分块累积起来，请求结束后按 JSON 解析成 `{code, message}`，交给请求封装统一处理（401 重登、409 跳转或提示、429/503 toast）。
 - **状态管理**：用 zustand 管理登录态和当前评分；打卡或保存基准后，直接用接口返回的评分更新状态。
-- **图表**：`ec-canvas` + ECharts 按需构建，放在趋势分包中，保证主包小于 2MB。
+- **图表**：微信规定 tabBar 页面必须在主包，所以趋势页本身留在主包，ECharts 封装成独立组件放进分包 `packages/charts`，用分包异步化引用：页面配置里用 `componentPlaceholder` 声明占位组件（一个“图表加载中”的 view），分包下载完成后自动替换。ECharts 按需构建，只打包折线图。主包保持小于 2MB。分包异步化要求基础库 ≥ 2.11.1，已被 `enableChunked` 的 2.20.2 要求覆盖。
 - **分享**：`onShareAppMessage`，标题用当前档位的 slogan。分享海报留到后续迭代。
 - **回答渲染**：只渲染纯文本和段落换行。
 - **无障碍**：星级按钮加 `aria-label`（如“3 星，一般”）；档位同时用 emoji 和文字表示，不只靠颜色区分；文字对比度 ≥ 4.5:1；点击区域 ≥ 44px。
@@ -352,7 +374,7 @@ dsh 协议不支持中途取消一轮回答。客户端断开后，后台会把�
   - UTF-8 解码器 / SSE 解析器：中英文混合文本在每个字节位置切开，重组结果与原文一致。
 - **server（vitest + supertest，使用测试库 `should_quit_test`）**
   - 主流程：登录 → 409 → 录入基准 → 打卡 → 读取评分和趋势。
-  - 安全：跨用户访问会话返回 404；internal 接口缺少 token 或 sessionId 不存在时返回 403；第 31 次提问被限流；同一会话并发提问返回 `AGENT_BUSY`。
+  - 安全：跨用户访问会话返回 404；internal 接口缺少 token 或 sessionId 不存在时返回 403；会话重建后旧 dshSessionId 回调返回 403；第 31 次提问被限流；同一会话并发提问返回 `AGENT_BUSY`；超时后、`FakeAgentEngine` 还没结束前再次提问仍返回 `AGENT_BUSY`，结束后可以正常提问。
   - 时区：北京时间 23:59 和 00:01 的打卡归入不同的两天。
   - 智能体：用 `FakeAgentEngine` 测试 SSE 事件顺序、心跳、超时和消息状态写入。
 - **智能体真实链路**
