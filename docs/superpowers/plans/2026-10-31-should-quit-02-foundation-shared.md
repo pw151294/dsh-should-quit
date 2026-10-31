@@ -22,6 +22,7 @@
 | `packages/shared/src/scoring/objective.ts` | 基准字段、权重、客观分 |
 | `packages/shared/src/scoring/mood.ts` | 星级映射、心情平时分 |
 | `packages/shared/src/scoring/total.ts` | 综合分、档位、`computeScore` |
+| `packages/shared/src/scoring/daily.ts` | `aggregateDaily`：打卡记录按日聚合 |
 | `packages/shared/src/baseline-options.ts` | 8 道题目与 5 档选项 |
 | `packages/shared/src/errors.ts` | 错误码与 HTTP 状态 |
 | `packages/shared/src/dto.ts` | 请求 zod schema 与响应类型 |
@@ -921,7 +922,7 @@ git commit -m "feat(shared): add baseline questions and options"
 - Create: `packages/shared/src/errors.ts`
 - Test: `packages/shared/test/errors.test.ts`
 
-错误码与设计文档 §5 对照表一一对应。`AGENT_UNAVAILABLE`、`AGENT_TIMEOUT` 只出现在 SSE `error` 事件里，HTTP 状态记为 `null`。
+错误码与设计文档 §5 对照表一一对应，另加 `INTERNAL_ERROR`（500）兜底未预期异常。`AGENT_UNAVAILABLE`、`AGENT_TIMEOUT` 只出现在 SSE `error` 事件里，HTTP 状态记为 `null`。
 
 - [ ] **Step 1: 写失败测试 `packages/shared/test/errors.test.ts`**
 
@@ -930,10 +931,11 @@ import { describe, expect, it } from 'vitest'
 import { ErrorCode, errorHttpStatus, isErrorBody } from '../src/errors.js'
 
 describe('errors', () => {
-  it('包含设计文档 §5 的全部 11 个错误码', () => {
+  it('包含设计文档 §5 的全部 12 个错误码', () => {
     expect(Object.keys(ErrorCode).sort()).toEqual([
       'AGENT_BUSY', 'AGENT_RESTARTING', 'AGENT_TIMEOUT', 'AGENT_UNAVAILABLE', 'BASELINE_REQUIRED',
-      'FORBIDDEN', 'NOT_FOUND', 'RATE_LIMITED', 'UNAUTHORIZED', 'VALIDATION_FAILED', 'WECHAT_LOGIN_FAILED',
+      'FORBIDDEN', 'INTERNAL_ERROR', 'NOT_FOUND', 'RATE_LIMITED', 'UNAUTHORIZED', 'VALIDATION_FAILED',
+      'WECHAT_LOGIN_FAILED',
     ])
   })
   it('键与值相同', () => {
@@ -949,6 +951,7 @@ describe('errors', () => {
     expect(errorHttpStatus.AGENT_BUSY).toBe(409)
     expect(errorHttpStatus.RATE_LIMITED).toBe(429)
     expect(errorHttpStatus.AGENT_RESTARTING).toBe(503)
+    expect(errorHttpStatus.INTERNAL_ERROR).toBe(500)
     expect(errorHttpStatus.AGENT_UNAVAILABLE).toBeNull()
     expect(errorHttpStatus.AGENT_TIMEOUT).toBeNull()
   })
@@ -980,6 +983,7 @@ export const ErrorCode = {
   AGENT_BUSY: 'AGENT_BUSY',
   RATE_LIMITED: 'RATE_LIMITED',
   AGENT_RESTARTING: 'AGENT_RESTARTING',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
   AGENT_UNAVAILABLE: 'AGENT_UNAVAILABLE',
   AGENT_TIMEOUT: 'AGENT_TIMEOUT',
 } as const
@@ -997,6 +1001,7 @@ export const errorHttpStatus: Record<ErrorCode, number | null> = {
   AGENT_BUSY: 409,
   RATE_LIMITED: 429,
   AGENT_RESTARTING: 503,
+  INTERNAL_ERROR: 500,
   AGENT_UNAVAILABLE: null,
   AGENT_TIMEOUT: null,
 }
@@ -1561,7 +1566,243 @@ git commit -m "feat(shared): add sse parser and frame formatter"
 
 ---
 
-### Task 12：阶段收尾
+### Task 12：打卡按日聚合
+
+**Files:**
+- Create: `packages/shared/src/scoring/daily.ts`
+- Test: `packages/shared/test/daily.test.ts`
+
+server 从 MySQL 取出窗口内的打卡（只取 `checkinDate`、`stars`），交给 `aggregateDaily` 得到日均分，再喂给 `moodScore`。聚合放在 shared 而不是 SQL 里，是为了让窗口边界和均值算法只有一份实现、能单测。`GET /api/moods/daily` 与智能体工具 `get_mood_history` 也用它，`windowDays` 传请求里的 `days`。
+
+- [ ] **Step 1: 写失败测试 `packages/shared/test/daily.test.ts`**
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { aggregateDaily } from '../src/scoring/daily.js'
+import { moodScore } from '../src/scoring/mood.js'
+
+const TODAY = '2026-10-31'
+
+describe('aggregateDaily', () => {
+  it('同一天多次打卡合并：avg 为 0–100 均值，count 为次数', () => {
+    const r = aggregateDaily([
+      { checkinDate: TODAY, stars: 1 },
+      { checkinDate: TODAY, stars: 2 },
+      { checkinDate: TODAY, stars: 2 },
+    ], TODAY)
+    expect(r).toEqual([{ date: TODAY, age: 0, avg: 16.67, count: 3 }])
+  })
+  it('按日期升序输出，age 为距 today 的天数', () => {
+    const r = aggregateDaily([
+      { checkinDate: '2026-10-31', stars: 5 },
+      { checkinDate: '2026-10-29', stars: 3 },
+    ], TODAY)
+    expect(r.map((d) => [d.date, d.age])).toEqual([['2026-10-29', 2], ['2026-10-31', 0]])
+  })
+  it('默认窗口 30 天：距今 29 天保留，30 天丢弃', () => {
+    const r = aggregateDaily([
+      { checkinDate: '2026-10-02', stars: 3 }, // age 29
+      { checkinDate: '2026-10-01', stars: 3 }, // age 30
+    ], TODAY)
+    expect(r.map((d) => d.age)).toEqual([29])
+  })
+  it('windowDays 可调，用于 days=7 / 90 的查询', () => {
+    const rows = [{ checkinDate: '2026-10-24', stars: 3 }, { checkinDate: '2026-10-25', stars: 3 }]
+    expect(aggregateDaily(rows, TODAY, 7).map((d) => d.age)).toEqual([6])
+  })
+  it('未来日期抛错（说明服务端日期计算有误）', () => {
+    expect(() => aggregateDaily([{ checkinDate: '2026-11-01', stars: 3 }], TODAY)).toThrow()
+  })
+  it('空输入返回空数组，moodScore 对它返回 null', () => {
+    expect(aggregateDaily([], TODAY)).toEqual([])
+    expect(moodScore(aggregateDaily([], TODAY))).toBeNull()
+  })
+  it('windowDays 非正整数时抛错', () => {
+    expect(() => aggregateDaily([], TODAY, 0)).toThrow()
+  })
+})
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+Run: `pnpm --filter @should-quit/shared test -- daily`
+Expected: FAIL，模块不存在。
+
+- [ ] **Step 3: 实现 `packages/shared/src/scoring/daily.ts`**
+
+```ts
+// packages/shared/src/scoring/daily.ts
+import { daysBetween } from '../time.js'
+import { MOOD_WINDOW_DAYS, starsToScore } from './mood.js'
+import { round2 } from './objective.js'
+
+export interface DailyMoodRow {
+  date: string
+  /** 距 today 的天数，today 为 0 */
+  age: number
+  /** 当日均分 0–100，保留两位小数 */
+  avg: number
+  count: number
+}
+
+/** 把打卡记录按本地日期聚合；只保留 age ∈ [0, windowDays − 1]，按 date 升序 */
+export function aggregateDaily(
+  checkins: ReadonlyArray<{ checkinDate: string; stars: number }>,
+  today: string,
+  windowDays: number = MOOD_WINDOW_DAYS,
+): DailyMoodRow[] {
+  if (!Number.isInteger(windowDays) || windowDays < 1) throw new Error(`invalid windowDays: ${windowDays}`)
+  const groups = new Map<string, { sum: number; count: number; age: number }>()
+  for (const c of checkins) {
+    const age = daysBetween(c.checkinDate, today)
+    if (age < 0) throw new Error(`checkin in the future: ${c.checkinDate} > ${today}`)
+    if (age >= windowDays) continue
+    const g = groups.get(c.checkinDate) ?? { sum: 0, count: 0, age }
+    g.sum += starsToScore(c.stars)
+    g.count += 1
+    groups.set(c.checkinDate, g)
+  }
+  return [...groups.entries()]
+    .map(([date, g]) => ({ date, age: g.age, avg: round2(g.sum / g.count), count: g.count }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+}
+```
+
+`DailyMoodRow` 结构上兼容 `DailyMood`（多出 `date`、`count`），所以可以直接传给 `moodScore`。
+
+- [ ] **Step 4: 运行确认通过**
+
+Run: `pnpm --filter @should-quit/shared test -- daily`
+Expected: PASS，7 个用例全部通过。
+
+- [ ] **Step 5: 导出并提交**
+
+`packages/shared/src/index.ts` 追加：
+
+```ts
+export * from './scoring/daily.js'
+```
+
+```bash
+git add packages/shared/src/scoring/daily.ts packages/shared/src/index.ts packages/shared/test/daily.test.ts
+git commit -m "feat(shared): add daily mood aggregation"
+```
+
+---
+
+### Task 13：AgentEvent 与 SSE 帧互转
+
+**Files:**
+- Create: `packages/shared/src/stream/agent-events.ts`
+- Test: `packages/shared/test/agent-events.test.ts`
+
+server 用 `formatAgentEvent` 写帧，小程序用 `parseAgentEvent` 把 `SseFrame` 还原成 `AgentEvent`。帧的 `event` 名等于 `type`。解析时做最小结构校验：未知事件类型、JSON 损坏、字段缺失都返回 `null`（小程序跳过该帧），不抛错，避免一帧异常中断整段回答。
+
+- [ ] **Step 1: 写失败测试 `packages/shared/test/agent-events.test.ts`**
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { formatAgentEvent, parseAgentEvent } from '../src/stream/agent-events.js'
+import { SseParser } from '../src/stream/sse.js'
+import type { AgentEvent } from '../src/dto.js'
+
+const EVENTS: AgentEvent[] = [
+  { type: 'tool', name: 'get_score_summary', label: '正在查看你的评分' },
+  { type: 'delta', text: '你现在 47 分，\n处在🟠骑驴找马。' },
+  { type: 'error', code: 'AGENT_TIMEOUT', message: '回答超时' },
+  { type: 'done', messageId: 'm1' },
+]
+
+describe('agent events', () => {
+  it('format → SseParser → parse 往返一致', () => {
+    const p = new SseParser()
+    const frames = p.push(EVENTS.map(formatAgentEvent).join(''))
+    expect(frames.map(parseAgentEvent)).toEqual(EVENTS)
+  })
+  it('帧的 event 名等于 type', () => {
+    expect(formatAgentEvent({ type: 'done', messageId: 'm1' }).startsWith('event: done\n')).toBe(true)
+  })
+  it('未知事件、JSON 损坏、字段缺失、event 与 type 不一致都返回 null', () => {
+    expect(parseAgentEvent({ event: 'message', data: '{}' })).toBeNull()
+    expect(parseAgentEvent({ event: 'delta', data: '{not json' })).toBeNull()
+    expect(parseAgentEvent({ event: 'delta', data: '{"type":"delta"}' })).toBeNull()
+    expect(parseAgentEvent({ event: 'done', data: '{"type":"delta","text":"x"}' })).toBeNull()
+  })
+  it('error 事件的 code 必须是已知错误码', () => {
+    expect(parseAgentEvent({ event: 'error', data: '{"type":"error","code":"BOOM","message":"x"}' })).toBeNull()
+  })
+})
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+Run: `pnpm --filter @should-quit/shared test -- agent-events`
+Expected: FAIL，模块不存在。
+
+- [ ] **Step 3: 实现 `packages/shared/src/stream/agent-events.ts`**
+
+```ts
+// packages/shared/src/stream/agent-events.ts
+import type { AgentEvent } from '../dto.js'
+import { ErrorCode } from '../errors.js'
+import { formatSseFrame, type SseFrame } from './sse.js'
+
+export function formatAgentEvent(e: AgentEvent): string {
+  return formatSseFrame(e.type, e)
+}
+
+const isStr = (v: unknown): v is string => typeof v === 'string'
+
+export function parseAgentEvent(frame: SseFrame): AgentEvent | null {
+  let o: Record<string, unknown>
+  try {
+    const v: unknown = JSON.parse(frame.data)
+    if (typeof v !== 'object' || v === null) return null
+    o = v as Record<string, unknown>
+  } catch {
+    return null
+  }
+  if (o.type !== frame.event) return null
+  switch (o.type) {
+    case 'delta':
+      return isStr(o.text) ? { type: 'delta', text: o.text } : null
+    case 'tool':
+      return isStr(o.name) && isStr(o.label) ? { type: 'tool', name: o.name, label: o.label } : null
+    case 'done':
+      return isStr(o.messageId) ? { type: 'done', messageId: o.messageId } : null
+    case 'error':
+      return isStr(o.code) && Object.prototype.hasOwnProperty.call(ErrorCode, o.code) && isStr(o.message)
+        ? { type: 'error', code: o.code as ErrorCode, message: o.message }
+        : null
+    default:
+      return null
+  }
+}
+```
+
+`ErrorCode` 在 `errors.ts` 里同时是值（常量对象）和类型（联合类型），一条 `import { ErrorCode }` 两种用法都能覆盖。
+
+- [ ] **Step 4: 运行确认通过**
+
+Run: `pnpm --filter @should-quit/shared test -- agent-events`
+Expected: PASS，4 个用例全部通过。
+
+- [ ] **Step 5: 导出并提交**
+
+`packages/shared/src/index.ts` 追加：
+
+```ts
+export * from './stream/agent-events.js'
+```
+
+```bash
+git add packages/shared/src/stream/agent-events.ts packages/shared/src/index.ts packages/shared/test/agent-events.test.ts
+git commit -m "feat(shared): add agent event sse codec"
+```
+
+---
+
+### Task 14：阶段收尾
 
 **Files:**
 - 无新增

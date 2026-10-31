@@ -255,6 +255,7 @@ enum MessageStatus { COMPLETE FAILED INTERRUPTED }
 | `AGENT_BUSY` | 409 | 同一会话上一轮未结束 |
 | `RATE_LIMITED` | 429 | 智能体提问超过每小时 30 次 |
 | `AGENT_RESTARTING` | 503 | dsh 子进程重启中 |
+| `INTERNAL_ERROR` | 500 | 未预期的服务端异常（不暴露内部细节） |
 | `AGENT_UNAVAILABLE` | SSE `error` 事件 | 推流开始后模型侧失败（限流、鉴权、余额） |
 | `AGENT_TIMEOUT` | SSE `error` 事件 | 单轮超过 300 秒 |
 

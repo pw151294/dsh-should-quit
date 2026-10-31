@@ -94,22 +94,29 @@ export class SseParser { push(text: string): SseFrame[] }   // SseFrame = { even
 export const ErrorCode: { ... }   // 设计文档 §5 对照表中的全部错误码
 export const errorHttpStatus: Record<ErrorCode, number | null>
 export const baselineSchema, moodCreateSchema, askSchema, trendQuerySchema, dailyQuerySchema
-// —— Phase 2 细化时补充的导出（同样不得改名）——
-export function addDays(date: string, n: number): string
-export function aggregateDaily(checkins: { checkinDate: string; stars: number }[], today: string, windowDays?: number): DailyMood[]
-//   DailyMood = { date: string; age: number; avg: number; count: number }，avg 为 0–100
+// —— Phase 2 细化时补充的导出（以 Phase 2 计划为准，同样不得改名）——
+export type Level = 1 | 2 | 3 | 4 | 5
+export interface DailyMood { age: number; avg: number }
 export interface ScoreResult { objectiveScore: number; moodScore: number | null; totalScore: number; tier: Tier; breakdown: Record<BaselineField, number>; algoVersion: number }
-export const TIER_RANGES, TIERS, BASELINE_WEIGHTS, MOOD_WINDOW_DAYS, TREND_RANGE_DAYS
-export const BASELINE_OPTIONS: readonly BaselineQuestion[]
-export function levelLabel(field: BaselineField, level: Level): string
+export const TIERS: ReadonlyArray<{ tier: Tier; min: number; max: number }>
+export const BASELINE_WEIGHTS, MOOD_WINDOW_DAYS, MOOD_HALF_LIFE_DAYS, OBJECTIVE_WEIGHT, MOOD_WEIGHT, TREND_RANGE_DAYS
+export function levelToScore(level: number): number
+export function round2(n: number): number
+export function dailyAverage(stars: number[]): number
+export function aggregateDaily(checkins: { checkinDate: string; stars: number }[], today: string, windowDays?: number): DailyMoodRow[]   // windowDays 默认 MOOD_WINDOW_DAYS
+//   DailyMoodRow = { date: string; age: number; avg: number; count: number }，avg 为 0–100，按 date 升序
+export const BASELINE_OPTIONS: ReadonlyArray<BaselineQuestion>
+export function optionLabel(field: BaselineField, level: number): string
 export const SSE_PING: string
-export function formatSseFrame(event: string, data: string): string
+export function formatSseFrame(event: string, payload: unknown): string
 export function formatAgentEvent(e: AgentEvent): string
 export function parseAgentEvent(frame: SseFrame): AgentEvent | null
-export const loginSchema, moodDateQuerySchema
-// 响应类型：ScoreView、TierCopy、UserView、LoginResponse、MoodCreateResponse、DailyMoodView、MoodCheckinView、
-//          SnapshotView、TrendResponse、ConversationView、MessageView、AgentConfigView、AgentEvent
-// ErrorCode 比设计文档对照表多一个 INTERNAL_ERROR（500），用于未预期异常
+export function isErrorBody(v: unknown): v is ErrorBody
+export const loginSchema, moodDateQuerySchema, dateString
+// 响应类型：ScoreView、TierCopy、UserView、LoginResponse、MoodDailyItem、MoodItem、TrendPoint、TrendResponse、
+//          ConversationView、MessageView、MessageRole、MessageStatus、AgentConfigView、AgentEvent
+// POST /api/moods 与 PUT /api/baseline 都返回 ScoreView；“今日已打卡 N 次”由小程序本地累加
+// ErrorCode 比设计文档初稿多一个 INTERNAL_ERROR（500），用于未预期异常；设计文档对照表已同步
 ```
 
 **环境变量（`apps/server/.env.example`）：**
