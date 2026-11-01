@@ -1,0 +1,10 @@
+{
+  "hotline": "12356（全国统一心理援助热线）",
+  "presetQuestions": ["我该溜吗？", "哪些条件最拖分？", "最近心情有什么变化？"],
+  "toolLabels": {
+    "get_score_summary": "正在查看你的评分",
+    "get_baseline": "正在查看你的工作基准",
+    "get_mood_history": "正在查看你的打卡记录",
+    "get_score_trend": "正在查看你的分数趋势"
+  }
+}

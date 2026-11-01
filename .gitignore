@@ -8,3 +8,13 @@ dist/
 coverage/
 *.log
 .DS_Store
+.idea/
+.swc/
+
+spike/node_modules/
+spike/.dsh-home/
+spike/workspace/
+spike/result.json
+*.tsbuildinfo
+apps/server/var/
+apps/server/src/generated/

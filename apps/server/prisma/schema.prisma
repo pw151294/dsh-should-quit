@@ -1,0 +1,100 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  /// 列排序规则为 utf8mb4_bin，在迁移 binary_ids 中设置
+  openid    String   @unique @db.VarChar(64)
+  nickname  String?  @db.VarChar(64)
+  avatarUrl String?  @db.VarChar(512)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Baseline {
+  userId            String   @id
+  salary            Int      @db.TinyInt
+  commute           Int      @db.TinyInt
+  overtime          Int      @db.TinyInt
+  restTime          Int      @db.TinyInt
+  workload          Int      @db.TinyInt
+  stabilityBenefits Int      @db.TinyInt
+  growth            Int      @db.TinyInt
+  contentFit        Int      @db.TinyInt
+  updatedAt         DateTime @updatedAt
+}
+
+model MoodCheckin {
+  id          String   @id @default(cuid())
+  userId      String
+  stars       Int      @db.TinyInt
+  note        String?  @db.VarChar(200)
+  checkinDate DateTime @db.Date
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+
+  @@index([userId, checkinDate])
+}
+
+model ScoreSnapshot {
+  id             String   @id @default(cuid())
+  userId         String
+  snapshotDate   DateTime @db.Date
+  objectiveScore Decimal  @db.Decimal(5, 2)
+  moodScore      Decimal? @db.Decimal(5, 2)
+  totalScore     Int      @db.TinyInt
+  tier           Tier
+  breakdown      Json
+  algoVersion    Int
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, snapshotDate])
+}
+
+enum Tier {
+  RUN
+  SEEK
+  WATCH
+  STAY
+}
+
+model AgentConversation {
+  id            String   @id @default(cuid())
+  userId        String
+  /// 列排序规则为 utf8mb4_bin，在迁移 binary_ids 中设置
+  dshSessionId  String   @unique @db.VarChar(64)
+  title         String?  @db.VarChar(64)
+  createdAt     DateTime @default(now())
+  lastMessageAt DateTime @default(now())
+
+  @@index([userId, lastMessageAt])
+}
+
+model AgentMessage {
+  id             String        @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String        @db.Text
+  status         MessageStatus
+  createdAt      DateTime      @default(now()) @db.DateTime(3)
+
+  @@index([conversationId, createdAt])
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum MessageStatus {
+  COMPLETE
+  FAILED
+  INTERRUPTED
+}

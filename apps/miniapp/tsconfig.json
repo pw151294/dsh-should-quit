@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "types": [
+      "@tarojs/taro",
+      "node"
+    ],
+    "noEmit": true,
+    "declaration": false
+  },
+  "include": [
+    "src",
+    "config",
+    "test",
+    "vitest.config.ts"
+  ]
+}

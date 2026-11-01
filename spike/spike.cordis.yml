@@ -1,0 +1,24 @@
+- insert:
+    - id: should-quit-spike
+      name: ./plugin/index.js
+      config: {}
+- { id: tool-bash, disabled: true }
+- { id: tool-pwsh, disabled: true }
+- { id: tool-jobs, disabled: true }
+- { id: tool-fs, disabled: true }
+- { id: tool-fs-search, disabled: true }
+- { id: tool-web, disabled: true }
+- { id: tool-subagent, disabled: true }
+- { id: tool-subagent-fork, disabled: true }
+- { id: tool-subagent-control, disabled: true }
+- { id: tool-subagent-list-agents, disabled: true }
+- { id: tool-workflow, disabled: true }
+- { id: tool-todo, disabled: true }
+- { id: tool-goal, disabled: true }
+- { id: tool-skill, disabled: true }
+- { id: tool-working-directory, disabled: true }
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    personaPrefix: You are a test assistant. Answer briefly. When asked for the verification code, call the spike_echo_session tool and repeat the code exactly.
+    personaSuffix: ''

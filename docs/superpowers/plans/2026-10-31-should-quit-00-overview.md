@@ -113,7 +113,7 @@ export function formatAgentEvent(e: AgentEvent): string
 export function parseAgentEvent(frame: SseFrame): AgentEvent | null
 export function isErrorBody(v: unknown): v is ErrorBody
 export const loginSchema, moodDateQuerySchema, dateString
-// 响应类型：ScoreView、TierCopy、UserView、LoginResponse、MoodDailyItem、MoodItem、TrendPoint、TrendResponse、
+// 响应类型：ScoreView、TierCopy、UserView、LoginResponse、BaselineResponse、MoodDailyItem、MoodItem、TrendPoint、TrendResponse、
 //          ConversationView、MessageView、MessageRole、MessageStatus、AgentConfigView、AgentEvent
 // POST /api/moods 与 PUT /api/baseline 都返回 ScoreView；“今日已打卡 N 次”由小程序本地累加
 // ErrorCode 比设计文档初稿多一个 INTERNAL_ERROR（500），用于未预期异常；设计文档对照表已同步

@@ -1,0 +1,25 @@
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 12px;
+  text-align: center;
+}
+.calendar .day {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44PX;
+  margin: 0;
+  padding: 6px 1px;
+  border-radius: 8px;
+  line-height: 1.4;
+  font-size: 14px;
+}
+.calendar .day view { font-size: 10px; white-space: normal; }
+.day.red { background: #fce6e6; color: #732929; }
+.day.orange { background: #fff0dc; color: #78400b; }
+.day.yellow { background: #fffadd; color: #615308; }
+.day.green { background: #e6f3e2; color: #285723; }
+.day.gray { background: #ededed; color: #464646; }
+.calendar .day[disabled] { color: #595959; background: #f4f4f4; opacity: 1; }
