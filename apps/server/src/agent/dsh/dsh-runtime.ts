@@ -44,7 +44,8 @@ export class DshRuntime implements OnModuleInit, OnModuleDestroy, SessionFactory
     await mkdir(dirname(patch), { recursive: true }); await mkdir(cwd, { recursive: true })
     await writeFile(patch, JSON.stringify(makePatch(this.config.prompt, mode, patch)), 'utf8')
     const h = new DeepSeekHarness({ profile: 'sdk', patches: [patch],
-      dshHome: resolve(this.env.DSH_HOME_DIR), cwd, processCwd: resolve('.'),
+      // 防止子进程读取后端 .env，配置仅通过白名单传递。
+      dshHome: resolve(this.env.DSH_HOME_DIR), cwd, processCwd: cwd,
       provider: 'deepseek-official', model: 'deepseek-v4-flash', maxTokens: 2048,
       initializeTimeoutMs: 60_000, requestTimeoutMs: 660_000,
       env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '',
