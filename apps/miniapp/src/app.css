@@ -1,0 +1,12 @@
+page { background: #fafafa; color: #222; font-size: 30px; }
+.screen { padding: 28px; padding-bottom: 60px; }
+.title { font-size: 36px; font-weight: bold; }
+.card { background: #fff; border: 1px solid #dedede; border-radius: 24px; padding: 28px; margin: 24px 0; }
+.muted { color: #555; font-size: 26px; }
+.option { margin-top: 18px; text-align: left; border: 2px solid #ccc; background: #fff; color: #222; }
+.option.selected { border-color: #245c43; background: #e7f2eb; color: #17402c; }
+.primary { background: #245c43; color: #fff; margin-top: 24px; }
+.stars { display: flex; margin: 24px 0; }
+.stars button { min-width: 104px; min-height: 104px; padding: 0; color: #755000; background: #fff8e4; font-size: 48px; }
+.note { width: 100%; min-height: 140px; margin-top: 20px; }
+.score { font-size: 52px; font-weight: bold; }

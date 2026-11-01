@@ -1,0 +1,8 @@
+.screen { padding-bottom:calc(180px + env(safe-area-inset-bottom)); }
+.screen button { min-height:44PX; margin:12px 0; }
+.bubble { white-space:pre-wrap; overflow-wrap:anywhere; padding:14px; margin:12px 0; border-radius:16px; max-width:85%; background:#fff; }
+.bubble.user { margin-left:auto; background:#d9efdf; }
+.muted { background:#eee; color:#666; padding:10px; margin:8px 0; }
+.chat-input { position:fixed; bottom:0; left:0; right:0; background:#fafafa; padding:12px 16px calc(12px + env(safe-area-inset-bottom)); display:flex; align-items:center; gap:12px; }
+.chat-input textarea { flex:1; height:72px; min-width:0; }
+.chat-input button { min-width:64px; flex-shrink:0; }
