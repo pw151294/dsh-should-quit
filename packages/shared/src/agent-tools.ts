@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './validation.js'
 export const AGENT_TOOL_NAMES = ['get_score_summary', 'get_baseline', 'get_mood_history', 'get_score_trend'] as const
 export type AgentToolName = typeof AGENT_TOOL_NAMES[number]
 export const agentToolNameSchema = z.enum(AGENT_TOOL_NAMES)

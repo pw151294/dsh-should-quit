@@ -132,3 +132,22 @@ it('waits one second after confirmed transport exit and cancels replacement on s
     expect(replacement).toHaveBeenCalledTimes(1)
   } finally { vi.useRealTimers(); vi.mocked(DeepSeekHarness).mockReset() }
 })
+
+it('starts the child in the isolated workspace without loading the server dotenv', async () => {
+  const harness = { start: vi.fn(async () => {}), close: vi.fn(async () => {}),
+    client: { subscribe: () => ({
+      [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => {}) }), close: vi.fn(),
+    }) } }
+  vi.mocked(DeepSeekHarness).mockImplementation(function () { return harness as never })
+  const runtime = new DshRuntime({ AGENT_ENGINE: 'dsh-tools', DSH_HOME_DIR: 'var/test-dsh',
+    INTERNAL_PORT: 3100, INTERNAL_TOKEN: 'test', DEEPSEEK_API_KEY: 'test' } as never,
+    { prompt: 'test', toolLabels: {} } as never, {} as never)
+  try {
+    await runtime.restart()
+    const options = vi.mocked(DeepSeekHarness).mock.calls.at(-1)![0]!
+    expect(options.processCwd).toBe(options.cwd)
+    expect(Object.keys(options.env!).sort()).toEqual([
+      'DEEPSEEK_API_KEY', 'HOME', 'INTERNAL_TOKEN', 'INTERNAL_URL', 'PATH',
+    ])
+  } finally { await runtime.onModuleDestroy(); vi.mocked(DeepSeekHarness).mockReset() }
+})

@@ -1,5 +1,5 @@
 // packages/shared/src/dto.ts
-import { z } from 'zod'
+import { z } from './validation.js'
 import { BASELINE_FIELDS, type BaselineField } from './scoring/objective.js'
 import type { ScoreResult, Tier } from './scoring/total.js'
 import type { ErrorCode } from './errors.js'
